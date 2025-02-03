@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "docling-serve"
-version = "0.1.0"
+version = "0.2.0"
 description = "Running Docling as a service"
 license = "MIT"
 authors = [
