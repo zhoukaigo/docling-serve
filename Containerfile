@@ -58,4 +58,4 @@ COPY --chown=1001:0 --chmod=664 ./docling_serve ./docling_serve
 
 EXPOSE 5001
 
-CMD ["uvicorn", "--port", "5001", "--host", "0.0.0.0", "docling_serve.app:app"]
+CMD ["python", "-m", "docling_serve"]

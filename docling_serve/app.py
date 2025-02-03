@@ -1,177 +1,83 @@
-import base64
-import hashlib
+import logging
+import os
+import tempfile
 from contextlib import asynccontextmanager
-from enum import Enum
 from io import BytesIO
-from typing import Any, Dict, List, Optional, Tuple, Union
+from pathlib import Path
+from typing import Annotated, Any, Dict, List, Optional, Union
 
-import httpx
-from docling.datamodel.base_models import (
-    ConversionStatus,
-    DocumentStream,
-    ErrorItem,
-    InputFormat,
+from docling.datamodel.base_models import DocumentStream, InputFormat
+from docling.document_converter import DocumentConverter
+from dotenv import load_dotenv
+from fastapi import BackgroundTasks, FastAPI, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
+
+from docling_serve.docling_conversion import (
+    ConvertDocumentFileSourcesRequest,
+    ConvertDocumentsOptions,
+    ConvertDocumentsRequest,
+    convert_documents,
+    converters,
+    get_pdf_pipeline_opts,
 )
-from docling.datamodel.document import ConversionResult
-from docling.datamodel.pipeline_options import (
-    EasyOcrOptions,
-    OcrOptions,
-    PdfPipelineOptions,
-    RapidOcrOptions,
-    TesseractOcrOptions,
+from docling_serve.helper_functions import FormDepends, _str_to_bool
+from docling_serve.response_preparation import ConvertDocumentResponse, process_results
+
+# Load local env vars if present
+load_dotenv()
+
+WITH_UI = _str_to_bool(os.getenv("WITH_UI", "False"))
+if WITH_UI:
+    import gradio as gr
+
+    from docling_serve.gradio_ui import ui as gradio_ui
+
+
+# Set up custom logging as we'll be intermixes with FastAPI/Uvicorn's logging
+class ColoredLogFormatter(logging.Formatter):
+    COLOR_CODES = {
+        logging.DEBUG: "\033[94m",  # Blue
+        logging.INFO: "\033[92m",  # Green
+        logging.WARNING: "\033[93m",  # Yellow
+        logging.ERROR: "\033[91m",  # Red
+        logging.CRITICAL: "\033[95m",  # Magenta
+    }
+    RESET_CODE = "\033[0m"
+
+    def format(self, record):
+        color = self.COLOR_CODES.get(record.levelno, "")
+        record.levelname = f"{color}{record.levelname}{self.RESET_CODE}"
+        return super().format(record)
+
+
+logging.basicConfig(
+    level=logging.INFO,  # Set the logging level
+    format="%(levelname)s:\t%(asctime)s - %(name)s - %(message)s",
+    datefmt="%H:%M:%S",
 )
-from docling.document_converter import DocumentConverter, PdfFormatOption
-from docling.utils.profiling import ProfilingItem
-from docling_core.types.doc import DoclingDocument, ImageRefMode
-from docling_core.utils.file import resolve_remote_filename
-from fastapi import FastAPI, HTTPException, Response
-from pydantic import AnyHttpUrl, BaseModel
+
+# Override the formatter with the custom ColoredLogFormatter
+root_logger = logging.getLogger()  # Get the root logger
+for handler in root_logger.handlers:  # Iterate through existing handlers
+    if handler.formatter:
+        handler.setFormatter(ColoredLogFormatter(handler.formatter._fmt))
+
+_log = logging.getLogger(__name__)
 
 
-# TODO: import enum from Docling, once it is exposed
-class OcrEngine(str, Enum):
-    EASYOCR = "easyocr"
-    TESSERACT = "tesseract"
-    RAPIDOCR = "rapidocr"
-
-
-class ConvertOptions(BaseModel):
-    output_docling_document: bool = True
-    output_markdown: bool = False
-    output_html: bool = False
-    do_ocr: bool = True
-    ocr_engine: OcrEngine = OcrEngine.EASYOCR
-    ocr_lang: Optional[List[str]] = None
-    force_ocr: bool = False
-    do_table_structure: bool = True
-    include_images: bool = True
-    images_scale: float = 2.0
-
-
-class DocumentConvertBase(BaseModel):
-    options: ConvertOptions = ConvertOptions()
-
-
-class HttpSource(BaseModel):
-    url: str
-    headers: Dict[str, Any] = {}
-
-
-class FileSource(BaseModel):
-    base64_string: str
-    filename: str
-
-
-class ConvertDocumentHttpSourceRequest(DocumentConvertBase):
-    http_source: HttpSource
-
-
-class ConvertDocumentFileSourceRequest(DocumentConvertBase):
-    file_source: FileSource
-
-
-class DocumentResponse(BaseModel):
-    markdown: Optional[str] = None
-    docling_document: Optional[DoclingDocument] = None
-    html: Optional[str] = None
-
-
-class ConvertDocumentResponse(BaseModel):
-    document: DocumentResponse
-    status: ConversionStatus
-    errors: List[ErrorItem] = []
-    timings: Dict[str, ProfilingItem] = {}
-
-
-class ConvertDocumentErrorResponse(BaseModel):
-    status: ConversionStatus
-    # errors: List[ErrorItem] = []
-
-
-ConvertDocumentRequest = Union[
-    ConvertDocumentFileSourceRequest, ConvertDocumentHttpSourceRequest
-]
-
-
-class MarkdownTextResponse(Response):
-    media_type = "text/markdown"
-
-
-class HealthCheckResponse(BaseModel):
-    status: str = "ok"
-
-
-def get_pdf_pipeline_opts(options: ConvertOptions) -> Tuple[PdfPipelineOptions, str]:
-
-    if options.ocr_engine == OcrEngine.EASYOCR:
-        try:
-            import easyocr  # noqa: F401
-        except ImportError:
-            raise HTTPException(
-                status_code=400,
-                detail="The requested OCR engine"
-                f" (ocr_engine={options.ocr_engine.value})"
-                " is not available on this system. Please choose another OCR engine "
-                "or contact your system administrator.",
-            )
-        ocr_options: OcrOptions = EasyOcrOptions(force_full_page_ocr=options.force_ocr)
-    elif options.ocr_engine == OcrEngine.TESSERACT:
-        try:
-            import tesserocr  # noqa: F401
-        except ImportError:
-            raise HTTPException(
-                status_code=400,
-                detail="The requested OCR engine"
-                f" (ocr_engine={options.ocr_engine.value})"
-                " is not available on this system. Please choose another OCR engine "
-                "or contact your system administrator.",
-            )
-        ocr_options = TesseractOcrOptions(force_full_page_ocr=options.force_ocr)
-    elif options.ocr_engine == OcrEngine.RAPIDOCR:
-        try:
-            from rapidocr_onnxruntime import RapidOCR  # noqa: F401
-        except ImportError:
-            raise HTTPException(
-                status_code=400,
-                detail="The requested OCR engine"
-                f" (ocr_engine={options.ocr_engine.value})"
-                " is not available on this system. Please choose another OCR engine "
-                "or contact your system administrator.",
-            )
-        ocr_options = RapidOcrOptions(force_full_page_ocr=options.force_ocr)
-    else:
-        raise RuntimeError(f"Unexpected OCR engine type {options.ocr_engine}")
-
-    if options.ocr_lang is not None:
-        ocr_options.lang = options.ocr_lang
-
-    pipeline_options = PdfPipelineOptions(
-        do_ocr=options.do_ocr,
-        ocr_options=ocr_options,
-        do_table_structure=options.do_table_structure,
-        generate_page_images=options.include_images,
-        generate_picture_images=options.include_images,
-        images_scale=options.images_scale,
-    )
-
-    options_hash = hashlib.sha1(pipeline_options.model_dump_json().encode()).hexdigest()
-
-    return pipeline_options, options_hash
-
-
-converters: Dict[str, DocumentConverter] = {}
-
-
+# Context manager to initialize and clean up the lifespan of the FastAPI app
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # settings = Settings()
 
     # Converter with default options
-    pipeline_options, options_hash = get_pdf_pipeline_opts(ConvertOptions())
+    pdf_format_option, options_hash = get_pdf_pipeline_opts(ConvertDocumentsOptions())
     converters[options_hash] = DocumentConverter(
         format_options={
-            InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
-            InputFormat.IMAGE: PdfFormatOption(pipeline_options=pipeline_options),
+            InputFormat.PDF: pdf_format_option,
+            InputFormat.IMAGE: pdf_format_option,
         }
     )
 
@@ -180,12 +86,55 @@ async def lifespan(app: FastAPI):
     yield
 
     converters.clear()
+    if WITH_UI:
+        gradio_ui.close()
 
+
+##################################
+# App creation and configuration #
+##################################
 
 app = FastAPI(
     title="Docling Serve",
     lifespan=lifespan,
 )
+
+origins = ["*"]
+methods = ["*"]
+headers = ["*"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=methods,
+    allow_headers=headers,
+)
+
+# Mount the Gradio app
+if WITH_UI:
+    tmp_output_dir = Path(tempfile.mkdtemp())
+    gradio_ui.gradio_output_dir = tmp_output_dir
+    app = gr.mount_gradio_app(
+        app, gradio_ui, path="/ui", allowed_paths=["./logo.png", tmp_output_dir]
+    )
+
+
+#############################
+# API Endpoints definitions #
+#############################
+
+
+# Favicon
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    response = RedirectResponse(url="https://ds4sd.github.io/docling/assets/logo.png")
+    return response
+
+
+# Status
+class HealthCheckResponse(BaseModel):
+    status: str = "ok"
 
 
 @app.get("/health")
@@ -193,87 +142,83 @@ def health() -> HealthCheckResponse:
     return HealthCheckResponse()
 
 
-def _convert_document(
-    body: ConvertDocumentRequest,
-) -> ConversionResult:
-
-    filename: str
-    buf: BytesIO
-
-    if isinstance(body, ConvertDocumentFileSourceRequest):
-        buf = BytesIO(base64.b64decode(body.file_source.base64_string))
-        filename = body.file_source.filename
-    elif isinstance(body, ConvertDocumentHttpSourceRequest):
-        http_res = httpx.get(body.http_source.url, headers=body.http_source.headers)
-        buf = BytesIO(http_res.content)
-        filename = resolve_remote_filename(
-            http_url=AnyHttpUrl(body.http_source.url),
-            response_headers=dict(**http_res.headers),
-        )
-
-    doc_input = DocumentStream(name=filename, stream=buf)
-
-    pipeline_options, options_hash = get_pdf_pipeline_opts(body.options)
-    if options_hash not in converters:
-        converters[options_hash] = DocumentConverter(
-            format_options={
-                InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
-                InputFormat.IMAGE: PdfFormatOption(pipeline_options=pipeline_options),
-            }
-        )
-
-    result: ConversionResult = converters[options_hash].convert(doc_input)
-
-    if result is None or result.status == ConversionStatus.SKIPPED:
-        raise HTTPException(status_code=400, detail=result.errors)
-
-    if result is None or result.status not in {
-        ConversionStatus.SUCCESS,
-    }:
-        raise HTTPException(
-            status_code=500, detail={"errors": result.errors, "status": result.status}
-        )
-
-    return result
+# API readiness compatibility for OpenShift AI Workbench
+@app.get("/api", include_in_schema=False)
+def api_check() -> HealthCheckResponse:
+    return HealthCheckResponse()
 
 
+# Convert a document from URL(s)
 @app.post(
-    "/convert",
+    "/v1alpha/convert/source",
+    response_model=ConvertDocumentResponse,
+    responses={
+        200: {
+            "content": {"application/zip": {}},
+            # "description": "Return the JSON item or an image.",
+        }
+    },
 )
-def convert_document(
-    body: ConvertDocumentRequest,
-) -> ConvertDocumentResponse:
+def process_url(
+    background_tasks: BackgroundTasks, conversion_request: ConvertDocumentsRequest
+):
+    sources: List[Union[str, DocumentStream]] = []
+    headers: Optional[Dict[str, Any]] = None
+    if isinstance(conversion_request, ConvertDocumentFileSourcesRequest):
+        for file_source in conversion_request.file_sources:
+            sources.append(file_source.to_document_stream())
+    else:
+        for http_source in conversion_request.http_sources:
+            sources.append(http_source.url)
+            if headers is None and http_source.headers:
+                headers = http_source.headers
 
-    result = _convert_document(body=body)
-
-    image_mode = (
-        ImageRefMode.EMBEDDED
-        if body.options.include_images
-        else ImageRefMode.PLACEHOLDER
-    )
-    doc_resp = DocumentResponse()
-    if body.options.output_docling_document:
-        doc_resp.docling_document = result.document
-    if body.options.output_markdown:
-        doc_resp.markdown = result.document.export_to_markdown(image_mode=image_mode)
-    if body.options.output_html:
-        doc_resp.html = result.document.export_to_html(image_mode=image_mode)
-
-    return ConvertDocumentResponse(
-        document=doc_resp, status=result.status, timings=result.timings
+    # Note: results are only an iterator->lazy evaluation
+    results = convert_documents(
+        sources=sources, options=conversion_request.options, headers=headers
     )
 
+    # The real processing will happen here
+    response = process_results(
+        background_tasks=background_tasks,
+        conversion_options=conversion_request.options,
+        conv_results=results,
+    )
 
-@app.post("/convert/markdown", response_class=MarkdownTextResponse)
-def convert_document_md(
-    body: ConvertDocumentRequest,
-) -> MarkdownTextResponse:
-    result = _convert_document(body=body)
-    image_mode = (
-        ImageRefMode.EMBEDDED
-        if body.options.include_images
-        else ImageRefMode.PLACEHOLDER
+    return response
+
+
+# Convert a document from file(s)
+@app.post(
+    "/v1alpha/convert/file",
+    response_model=ConvertDocumentResponse,
+    responses={
+        200: {
+            "content": {"application/zip": {}},
+        }
+    },
+)
+async def process_file(
+    background_tasks: BackgroundTasks,
+    files: List[UploadFile],
+    options: Annotated[ConvertDocumentsOptions, FormDepends(ConvertDocumentsOptions)],
+):
+
+    _log.info(f"Received {len(files)} files for processing.")
+
+    # Load the uploaded files to Docling DocumentStream
+    file_sources = []
+    for file in files:
+        buf = BytesIO(file.file.read())
+        name = file.filename if file.filename else "file.pdf"
+        file_sources.append(DocumentStream(name=name, stream=buf))
+
+    results = convert_documents(sources=file_sources, options=options)
+
+    response = process_results(
+        background_tasks=background_tasks,
+        conversion_options=options,
+        conv_results=results,
     )
-    return MarkdownTextResponse(
-        result.document.export_to_markdown(image_mode=image_mode)
-    )
+
+    return response
