@@ -1,20 +1,14 @@
-name: Run linter checks
-on:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["main"]
+name: Run checks
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+on:
+  workflow_call:
 
 jobs:
   py-lint:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.11']
+        python-version: ['3.12']
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-poetry
