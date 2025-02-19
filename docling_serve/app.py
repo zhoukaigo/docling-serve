@@ -116,7 +116,11 @@ if WITH_UI:
     tmp_output_dir = Path(tempfile.mkdtemp())
     gradio_ui.gradio_output_dir = tmp_output_dir
     app = gr.mount_gradio_app(
-        app, gradio_ui, path="/ui", allowed_paths=["./logo.png", tmp_output_dir]
+        app,
+        gradio_ui,
+        path="/ui",
+        allowed_paths=["./logo.png", tmp_output_dir],
+        root_path="/ui",
     )
 
 
