@@ -1,3 +1,15 @@
+## [v0.5.0](https://github.com/DS4SD/docling-serve/releases/tag/v0.5.0) - 2025-03-07
+
+### Feature
+
+* Async api ([#60](https://github.com/DS4SD/docling-serve/issues/60)) ([`82f8900`](https://github.com/DS4SD/docling-serve/commit/82f890019745859699c1b01f9ccfb64cb7e37906))
+* Display version in fastapi docs ([#78](https://github.com/DS4SD/docling-serve/issues/78)) ([`ed851c9`](https://github.com/DS4SD/docling-serve/commit/ed851c95fee5f59305ddc3dcd5c09efce618470b))
+
+### Fix
+
+* Remove uv from image, merge ARG and ENV declarations ([#57](https://github.com/DS4SD/docling-serve/issues/57)) ([`c95db36`](https://github.com/DS4SD/docling-serve/commit/c95db3643807a4dfb96d93c8e10d6eb486c49a30))
+* **docs:** Remove comma in convert/source curl example ([#73](https://github.com/DS4SD/docling-serve/issues/73)) ([`05df073`](https://github.com/DS4SD/docling-serve/commit/05df0735d35a589bdc2a11fcdd764a10f700cb6f))
+
 ## [v0.4.0](https://github.com/DS4SD/docling-serve/releases/tag/v0.4.0) - 2025-02-26
 
 ### Feature
