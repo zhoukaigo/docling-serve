@@ -1,3 +1,9 @@
+## [v0.5.1](https://github.com/DS4SD/docling-serve/releases/tag/v0.5.1) - 2025-03-10
+
+### Fix
+
+* Submodules in wheels ([#85](https://github.com/DS4SD/docling-serve/issues/85)) ([`a92ad48`](https://github.com/DS4SD/docling-serve/commit/a92ad48b287bfcb134011dc0fc3f91ee04e067ee))
+
 ## [v0.5.0](https://github.com/DS4SD/docling-serve/releases/tag/v0.5.0) - 2025-03-07
 
 ### Feature
