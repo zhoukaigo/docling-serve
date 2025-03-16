@@ -135,6 +135,7 @@ def _run(
         workers=uvicorn_settings.workers,
         root_path=uvicorn_settings.root_path,
         proxy_headers=uvicorn_settings.proxy_headers,
+        timeout_keep_alive=uvicorn_settings.timeout_keep_alive,
     )
 
 
@@ -186,6 +187,9 @@ def dev(
             )
         ),
     ] = uvicorn_settings.proxy_headers,
+    timeout_keep_alive: Annotated[
+        int, typer.Option(help="Timeout for the server response.")
+    ] = uvicorn_settings.timeout_keep_alive,
     # docling options
     artifacts_path: Annotated[
         Optional[Path],
@@ -213,6 +217,7 @@ def dev(
     uvicorn_settings.reload = reload
     uvicorn_settings.root_path = root_path
     uvicorn_settings.proxy_headers = proxy_headers
+    uvicorn_settings.timeout_keep_alive = timeout_keep_alive
 
     _run(
         command="dev",
@@ -277,6 +282,9 @@ def run(
             )
         ),
     ] = uvicorn_settings.proxy_headers,
+    timeout_keep_alive: Annotated[
+        int, typer.Option(help="Timeout for the server response.")
+    ] = uvicorn_settings.timeout_keep_alive,
     # docling options
     artifacts_path: Annotated[
         Optional[Path],
@@ -307,6 +315,7 @@ def run(
     uvicorn_settings.workers = workers
     uvicorn_settings.root_path = root_path
     uvicorn_settings.proxy_headers = proxy_headers
+    uvicorn_settings.timeout_keep_alive = timeout_keep_alive
 
     _run(
         command="run",
