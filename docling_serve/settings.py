@@ -32,6 +32,10 @@ class DoclingServeSettings(BaseSettings):
     artifacts_path: Optional[Path] = None
     options_cache_size: int = 2
 
+    cors_origins: list[str] = ["*"]
+    cors_methods: list[str] = ["*"]
+    cors_headers: list[str] = ["*"]
+
     eng_kind: AsyncEngine = AsyncEngine.LOCAL
     eng_loc_num_workers: int = 2
 
