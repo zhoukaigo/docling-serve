@@ -1,3 +1,21 @@
+## [v0.6.0](https://github.com/docling-project/docling-serve/releases/tag/v0.6.0) - 2025-03-17
+
+### Feature
+
+* Expose options for new features ([#92](https://github.com/docling-project/docling-serve/issues/92)) ([`ec57b52`](https://github.com/docling-project/docling-serve/commit/ec57b528ed3f8e7b9604ff4cdf06da3d52c714dd))
+
+### Fix
+
+* Allow changes in CORS settings ([#100](https://github.com/docling-project/docling-serve/issues/100)) ([`422c402`](https://github.com/docling-project/docling-serve/commit/422c402bab7f05e46274ede11f234a19a62e093e))
+* Avoid exploding options cache using lru and expose size parameter ([#101](https://github.com/docling-project/docling-serve/issues/101)) ([`ea09028`](https://github.com/docling-project/docling-serve/commit/ea090288d3eec4ea8fbdcd32a6a497a99c89189d))
+* Increase timeout_keep_alive and allow parameter changes ([#98](https://github.com/docling-project/docling-serve/issues/98)) ([`07c48ed`](https://github.com/docling-project/docling-serve/commit/07c48edd5d9437219d9623e3d05bc5166c5bb85a))
+* Add warning when using incompatible parameters ([#99](https://github.com/docling-project/docling-serve/issues/99)) ([`a212547`](https://github.com/docling-project/docling-serve/commit/a212547d28d6588c65e52000dc7bc04f3f77e69e))
+* **ui:** Use --port parameter and avoid failing when image is not found ([#97](https://github.com/docling-project/docling-serve/issues/97)) ([`c76daac`](https://github.com/docling-project/docling-serve/commit/c76daac70c87da412f791666881e48b74688b060))
+
+### Documentation
+
+* Simplify README and move details to docs ([#102](https://github.com/docling-project/docling-serve/issues/102)) ([`fd8e40a`](https://github.com/docling-project/docling-serve/commit/fd8e40a00849771263d9b75b9a56f6caeccb8517))
+
 ## [v0.5.1](https://github.com/docling-project/docling-serve/releases/tag/v0.5.1) - 2025-03-10
 
 ### Fix
