@@ -1,8 +1,10 @@
+import base64
 import importlib
 import json
 import logging
 import ssl
 import tempfile
+import time
 from pathlib import Path
 
 import certifi
@@ -149,6 +151,11 @@ def set_outputs_visibility_direct(x, y):
     return content, file
 
 
+def set_task_id_visibility(x):
+    task_id_row = gr.Row(visible=x)
+    return task_id_row
+
+
 def set_outputs_visibility_process(x):
     content = gr.Row(visible=not x)
     file = gr.Row(visible=x)
@@ -160,6 +167,7 @@ def set_download_button_label(label_text: gr.State):
 
 
 def clear_outputs():
+    task_id_rendered = ""
     markdown_content = ""
     json_content = ""
     json_rendered_content = ""
@@ -168,6 +176,7 @@ def clear_outputs():
     doctags_content = ""
 
     return (
+        task_id_rendered,
         markdown_content,
         markdown_content,
         json_content,
@@ -208,6 +217,51 @@ def change_ocr_lang(ocr_engine):
         return "eng,fra,deu,spa"
     elif ocr_engine == "rapidocr":
         return "english,chinese"
+
+
+def wait_task_finish(task_id: str, return_as_file: bool):
+    conversion_sucess = False
+    task_finished = False
+    task_status = ""
+    ssl_ctx = get_ssl_context()
+    while not task_finished:
+        try:
+            response = httpx.get(
+                f"{get_api_endpoint()}/v1alpha/status/poll/{task_id}?wait=5",
+                verify=ssl_ctx,
+                timeout=15,
+            )
+            task_status = response.json()["task_status"]
+            if task_status == "success":
+                conversion_sucess = True
+                task_finished = True
+
+            if task_status in ("failure", "revoked"):
+                conversion_sucess = False
+                task_finished = True
+                raise RuntimeError(f"Task failed with status {task_status!r}")
+            time.sleep(5)
+        except Exception as e:
+            logger.error(f"Error processing file(s): {e}")
+            conversion_sucess = False
+            task_finished = True
+            raise gr.Error(f"Error processing file(s): {e}", print_exception=False)
+
+    if conversion_sucess:
+        try:
+            response = httpx.get(
+                f"{get_api_endpoint()}/v1alpha/result/{task_id}",
+                timeout=15,
+                verify=ssl_ctx,
+            )
+            output = response_to_output(response, return_as_file)
+            return output
+        except Exception as e:
+            logger.error(f"Error getting task result: {e}")
+
+    raise gr.Error(
+        f"Error getting task result, conversion finished with status: {task_status}"
+    )
 
 
 def process_url(
@@ -256,7 +310,7 @@ def process_url(
     try:
         ssl_ctx = get_ssl_context()
         response = httpx.post(
-            f"{get_api_endpoint()}/v1alpha/convert/source",
+            f"{get_api_endpoint()}/v1alpha/convert/source/async",
             json=parameters,
             verify=ssl_ctx,
             timeout=60,
@@ -269,12 +323,19 @@ def process_url(
         error_message = data.get("detail", "An unknown error occurred.")
         logger.error(f"Error processing file: {error_message}")
         raise gr.Error(f"Error processing file: {error_message}", print_exception=False)
-    output = response_to_output(response, return_as_file)
-    return output
+
+    task_id_rendered = response.json()["task_id"]
+    return task_id_rendered
+
+
+def file_to_base64(file):
+    with open(file.name, "rb") as f:
+        encoded_string = base64.b64encode(f.read()).decode("utf-8")
+    return encoded_string
 
 
 def process_file(
-    files,
+    file,
     to_formats,
     image_export_mode,
     ocr,
@@ -290,12 +351,13 @@ def process_file(
     do_picture_classification,
     do_picture_description,
 ):
-    if not files or len(files) == 0 or files[0] == "":
+    if not file or file == "":
         logger.error("No files provided.")
         raise gr.Error("No files provided.", print_exception=False)
-    files_data = [("files", (file.name, open(file.name, "rb"))) for file in files]
+    files_data = [{"base64_string": file_to_base64(file), "filename": file.name}]
 
     parameters = {
+        "file_sources": files_data,
         "to_formats": to_formats,
         "image_export_mode": image_export_mode,
         "ocr": str(ocr).lower(),
@@ -315,9 +377,8 @@ def process_file(
     try:
         ssl_ctx = get_ssl_context()
         response = httpx.post(
-            f"{get_api_endpoint()}/v1alpha/convert/file",
-            files=files_data,
-            data=parameters,
+            f"{get_api_endpoint()}/v1alpha/convert/source/async",
+            json=parameters,
             verify=ssl_ctx,
             timeout=60,
         )
@@ -329,8 +390,9 @@ def process_file(
         error_message = data.get("detail", "An unknown error occurred.")
         logger.error(f"Error processing file: {error_message}")
         raise gr.Error(f"Error processing file: {error_message}", print_exception=False)
-    output = response_to_output(response, return_as_file)
-    return output
+
+    task_id_rendered = response.json()["task_id"]
+    return task_id_rendered
 
 
 def response_to_output(response, return_as_file):
@@ -444,24 +506,24 @@ with gr.Blocks(
             )
 
     # URL Processing Tab
-    with gr.Tab("Convert URL(s)"):
+    with gr.Tab("Convert URL"):
         with gr.Row():
             with gr.Column(scale=4):
                 url_input = gr.Textbox(
-                    label="Input Sources (comma-separated URLs)",
+                    label="URL Input Source",
                     placeholder="https://arxiv.org/pdf/2206.01062",
                 )
             with gr.Column(scale=1):
-                url_process_btn = gr.Button("Process URL(s)", scale=1)
+                url_process_btn = gr.Button("Process URL", scale=1)
                 url_reset_btn = gr.Button("Reset", scale=1)
 
     # File Processing Tab
-    with gr.Tab("Convert File(s)"):
+    with gr.Tab("Convert File"):
         with gr.Row():
             with gr.Column(scale=4):
                 file_input = gr.File(
                     elem_id="file_input_zone",
-                    label="Upload Files",
+                    label="Upload File",
                     file_types=[
                         ".pdf",
                         ".docx",
@@ -476,11 +538,11 @@ with gr.Blocks(
                         ".png",
                         ".gif",
                     ],
-                    file_count="multiple",
+                    file_count="single",
                     scale=4,
                 )
             with gr.Column(scale=1):
-                file_process_btn = gr.Button("Process File(s)", scale=1)
+                file_process_btn = gr.Button("Process File", scale=1)
                 file_reset_btn = gr.Button("Reset", scale=1)
 
     # Options
@@ -540,7 +602,9 @@ with gr.Blocks(
                 )
             with gr.Column(scale=1):
                 abort_on_error = gr.Checkbox(label="Abort on Error", value=False)
-                return_as_file = gr.Checkbox(label="Return as File", value=False)
+                return_as_file = gr.Checkbox(
+                    label="Return as File", visible=False, value=False
+                )  # Disable until async handle output as file
         with gr.Row():
             with gr.Column():
                 do_code_enrichment = gr.Checkbox(
@@ -556,6 +620,10 @@ with gr.Blocks(
                 do_picture_description = gr.Checkbox(
                     label="Enable picture description", value=False
                 )
+
+    # Task id output
+    with gr.Row(visible=False) as task_id_output:
+        task_id_rendered = gr.Textbox(label="Task id", interactive=False)
 
     # Document output
     with gr.Row(visible=False) as content_output:
@@ -586,22 +654,23 @@ with gr.Blocks(
     # UI Actions #
     ##############
 
+    # Disable until async handle output as file
     # Handle Return as File
-    url_input.change(
-        auto_set_return_as_file,
-        inputs=[url_input, file_input, image_export_mode],
-        outputs=[return_as_file],
-    )
-    file_input.change(
-        auto_set_return_as_file,
-        inputs=[url_input, file_input, image_export_mode],
-        outputs=[return_as_file],
-    )
-    image_export_mode.change(
-        auto_set_return_as_file,
-        inputs=[url_input, file_input, image_export_mode],
-        outputs=[return_as_file],
-    )
+    # url_input.change(
+    #     auto_set_return_as_file,
+    #     inputs=[url_input, file_input, image_export_mode],
+    #     outputs=[return_as_file],
+    # )
+    # file_input.change(
+    #     auto_set_return_as_file,
+    #     inputs=[url_input, file_input, image_export_mode],
+    #     outputs=[return_as_file],
+    # )
+    # image_export_mode.change(
+    #     auto_set_return_as_file,
+    #     inputs=[url_input, file_input, image_export_mode],
+    #     outputs=[return_as_file],
+    # )
 
     # URL processing
     url_process_btn.click(
@@ -609,13 +678,10 @@ with gr.Blocks(
     ).then(
         set_download_button_label, inputs=[processing_text], outputs=[download_file_btn]
     ).then(
-        set_outputs_visibility_process,
-        inputs=[return_as_file],
-        outputs=[content_output, file_output],
-    ).then(
         clear_outputs,
         inputs=None,
         outputs=[
+            task_id_rendered,
             output_markdown,
             output_markdown_rendered,
             output_json,
@@ -625,6 +691,10 @@ with gr.Blocks(
             output_text,
             output_doctags,
         ],
+    ).then(
+        set_task_id_visibility,
+        inputs=[true_bool],
+        outputs=[task_id_output],
     ).then(
         process_url,
         inputs=[
@@ -644,6 +714,16 @@ with gr.Blocks(
             do_picture_classification,
             do_picture_description,
         ],
+        outputs=[
+            task_id_rendered,
+        ],
+    ).then(
+        set_outputs_visibility_process,
+        inputs=[return_as_file],
+        outputs=[content_output, file_output],
+    ).then(
+        wait_task_finish,
+        inputs=[task_id_rendered, return_as_file],
         outputs=[
             output_markdown,
             output_markdown_rendered,
@@ -674,7 +754,9 @@ with gr.Blocks(
         set_outputs_visibility_direct,
         inputs=[false_bool, false_bool],
         outputs=[content_output, file_output],
-    ).then(clear_url_input, inputs=None, outputs=[url_input])
+    ).then(set_task_id_visibility, inputs=[false_bool], outputs=[task_id_output]).then(
+        clear_url_input, inputs=None, outputs=[url_input]
+    )
 
     # File processing
     file_process_btn.click(
@@ -682,13 +764,10 @@ with gr.Blocks(
     ).then(
         set_download_button_label, inputs=[processing_text], outputs=[download_file_btn]
     ).then(
-        set_outputs_visibility_process,
-        inputs=[return_as_file],
-        outputs=[content_output, file_output],
-    ).then(
         clear_outputs,
         inputs=None,
         outputs=[
+            task_id_rendered,
             output_markdown,
             output_markdown_rendered,
             output_json,
@@ -698,6 +777,10 @@ with gr.Blocks(
             output_text,
             output_doctags,
         ],
+    ).then(
+        set_task_id_visibility,
+        inputs=[true_bool],
+        outputs=[task_id_output],
     ).then(
         process_file,
         inputs=[
@@ -717,6 +800,16 @@ with gr.Blocks(
             do_picture_classification,
             do_picture_description,
         ],
+        outputs=[
+            task_id_rendered,
+        ],
+    ).then(
+        set_outputs_visibility_process,
+        inputs=[return_as_file],
+        outputs=[content_output, file_output],
+    ).then(
+        wait_task_finish,
+        inputs=[task_id_rendered, return_as_file],
         outputs=[
             output_markdown,
             output_markdown_rendered,
@@ -747,4 +840,6 @@ with gr.Blocks(
         set_outputs_visibility_direct,
         inputs=[false_bool, false_bool],
         outputs=[content_output, file_output],
-    ).then(clear_file_input, inputs=None, outputs=[file_input])
+    ).then(set_task_id_visibility, inputs=[false_bool], outputs=[task_id_output]).then(
+        clear_file_input, inputs=None, outputs=[file_input]
+    )
