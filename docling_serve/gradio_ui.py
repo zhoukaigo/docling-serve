@@ -11,6 +11,12 @@ import certifi
 import gradio as gr
 import httpx
 
+from docling.datamodel.pipeline_options import (
+    PdfBackend,
+    TableFormerMode,
+    TableStructureOptions,
+)
+
 from docling_serve.helper_functions import _to_list_of_strings
 from docling_serve.settings import docling_serve_settings, uvicorn_settings
 
@@ -358,20 +364,22 @@ def process_file(
 
     parameters = {
         "file_sources": files_data,
-        "to_formats": to_formats,
-        "image_export_mode": image_export_mode,
-        "ocr": str(ocr).lower(),
-        "force_ocr": str(force_ocr).lower(),
-        "ocr_engine": ocr_engine,
-        "ocr_lang": _to_list_of_strings(ocr_lang),
-        "pdf_backend": pdf_backend,
-        "table_mode": table_mode,
-        "abort_on_error": str(abort_on_error).lower(),
-        "return_as_file": str(return_as_file).lower(),
-        "do_code_enrichment": str(do_code_enrichment).lower(),
-        "do_formula_enrichment": str(do_formula_enrichment).lower(),
-        "do_picture_classification": str(do_picture_classification).lower(),
-        "do_picture_description": str(do_picture_description).lower(),
+        "options": {
+            "to_formats": to_formats,
+            "image_export_mode": image_export_mode,
+            "ocr": ocr,
+            "force_ocr": force_ocr,
+            "ocr_engine": ocr_engine,
+            "ocr_lang": _to_list_of_strings(ocr_lang),
+            "pdf_backend": pdf_backend,
+            "table_mode": table_mode,
+            "abort_on_error": abort_on_error,
+            "return_as_file": return_as_file,
+            "do_code_enrichment": do_code_enrichment,
+            "do_formula_enrichment": do_formula_enrichment,
+            "do_picture_classification": do_picture_classification,
+            "do_picture_description": do_picture_description,
+        },
     }
 
     try:
@@ -511,7 +519,7 @@ with gr.Blocks(
             with gr.Column(scale=4):
                 url_input = gr.Textbox(
                     label="URL Input Source",
-                    placeholder="https://arxiv.org/pdf/2206.01062",
+                    placeholder="https://arxiv.org/pdf/2501.17887",
                 )
             with gr.Column(scale=1):
                 url_process_btn = gr.Button("Process URL", scale=1)
@@ -530,6 +538,7 @@ with gr.Blocks(
                         ".pptx",
                         ".html",
                         ".xlsx",
+                        ".json",
                         ".asciidoc",
                         ".txt",
                         ".md",
@@ -551,14 +560,14 @@ with gr.Blocks(
             with gr.Column(scale=1):
                 to_formats = gr.CheckboxGroup(
                     [
-                        ("Markdown", "md"),
                         ("Docling (JSON)", "json"),
+                        ("Markdown", "md"),
                         ("HTML", "html"),
                         ("Plain Text", "text"),
                         ("Doc Tags", "doctags"),
                     ],
                     label="To Formats",
-                    value=["md"],
+                    value=["json", "md"],
                 )
             with gr.Column(scale=1):
                 image_export_mode = gr.Radio(
@@ -590,15 +599,17 @@ with gr.Blocks(
                 )
             ocr_engine.change(change_ocr_lang, inputs=[ocr_engine], outputs=[ocr_lang])
         with gr.Row():
-            with gr.Column(scale=2):
+            with gr.Column(scale=4):
                 pdf_backend = gr.Radio(
-                    ["pypdfium2", "dlparse_v1", "dlparse_v2"],
+                    [v.value for v in PdfBackend],
                     label="PDF Backend",
-                    value="dlparse_v2",
+                    value=PdfBackend.DLPARSE_V4.value,
                 )
             with gr.Column(scale=2):
                 table_mode = gr.Radio(
-                    ["fast", "accurate"], label="Table Mode", value="fast"
+                    [(v.value.capitalize(), v.value) for v in TableFormerMode],
+                    label="Table Mode",
+                    value=TableStructureOptions().mode.value,
                 )
             with gr.Column(scale=1):
                 abort_on_error = gr.Checkbox(label="Abort on Error", value=False)
@@ -627,16 +638,16 @@ with gr.Blocks(
 
     # Document output
     with gr.Row(visible=False) as content_output:
+        with gr.Tab("Docling (JSON)"):
+            output_json = gr.Code(language="json", wrap_lines=True, show_label=False)
+        with gr.Tab("Docling-Rendered"):
+            output_json_rendered = gr.HTML(label="Response")
         with gr.Tab("Markdown"):
             output_markdown = gr.Code(
                 language="markdown", wrap_lines=True, show_label=False
             )
         with gr.Tab("Markdown-Rendered"):
             output_markdown_rendered = gr.Markdown(label="Response")
-        with gr.Tab("Docling (JSON)"):
-            output_json = gr.Code(language="json", wrap_lines=True, show_label=False)
-        with gr.Tab("Docling-Rendered"):
-            output_json_rendered = gr.HTML()
         with gr.Tab("HTML"):
             output_html = gr.Code(language="html", wrap_lines=True, show_label=False)
         with gr.Tab("HTML-Rendered"):
