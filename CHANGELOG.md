@@ -1,3 +1,12 @@
+## [v0.10.1](https://github.com/docling-project/docling-serve/releases/tag/v0.10.1) - 2025-04-30
+
+### Fix
+
+* Avoid missing specialized keys in the options hash ([#166](https://github.com/docling-project/docling-serve/issues/166)) ([`36787bc`](https://github.com/docling-project/docling-serve/commit/36787bc0616356a6199da618d8646de51636b34e))
+* Allow users to set the area threshold for picture descriptions ([#165](https://github.com/docling-project/docling-serve/issues/165)) ([`509f488`](https://github.com/docling-project/docling-serve/commit/509f4889f8ed4c0f0ce25bec4126ef1f1199797c))
+* Expose max wait time in sync endpoints ([#164](https://github.com/docling-project/docling-serve/issues/164)) ([`919cf5c`](https://github.com/docling-project/docling-serve/commit/919cf5c0414f2f11eb8012f451fed7a8f582b7ad))
+* Add flash-attn for cuda images ([#161](https://github.com/docling-project/docling-serve/issues/161)) ([`35c2630`](https://github.com/docling-project/docling-serve/commit/35c2630c613cf229393fc67b6938152b063ff498))
+
 ## [v0.10.0](https://github.com/docling-project/docling-serve/releases/tag/v0.10.0) - 2025-04-28
 
 ### Feature
