@@ -1,5 +1,5 @@
 # Define the input options for the API
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Optional, List
 
 from pydantic import AnyUrl, BaseModel, Field, model_validator
 from typing_extensions import Self
@@ -392,3 +392,28 @@ class ConvertDocumentsOptions(BaseModel):
             )
 
         return self
+
+class FileItemChunk(BaseModel):
+    content: Annotated[
+        Optional[str],
+        Field(description="The content of the file item")
+    ] = None
+
+    tokens: Annotated[
+        Optional[int],
+        Field(description="The tokens of the content")
+    ] = None
+
+class Chunks(BaseModel):
+    chunks: Annotated[
+        List[FileItemChunk],
+        Field(
+            default_factory=list,
+            description="The chunks of the document"
+        )
+    ]
+
+    error: Annotated[
+        Optional[str],
+        Field(description="The error that occurred during the conversion to chunks")
+    ] = None
