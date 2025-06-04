@@ -3,7 +3,7 @@ from typing import List, Optional, Dict, Tuple
 from dataclasses import dataclass
 from enum import Enum
 import tiktoken
-from datamodel.convert import FileItemChunk
+from docling_serve.datamodel.convert import FileItemChunk
 
 
 class OverlapStrategy(Enum):
