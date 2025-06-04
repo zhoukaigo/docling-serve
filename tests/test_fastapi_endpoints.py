@@ -35,6 +35,61 @@ async def client(app):
 
 
 @pytest.mark.asyncio
+async def test_convert_file_md_with_default_chunking(client: AsyncClient):
+    """Test convert single file to MD with default chunking enabled."""
+    endpoint = "/v1alpha/convert/file"
+
+    # Using dot-notation for form data as FastAPI expects for FormDepends
+    form_data_options = {
+        "options.to_formats": "md",
+        "options.do_markdown_chunking": "true",
+        "options.pdf_backend": "dlparse_v2", # Consistent with other tests
+        "options.return_as_file": "false",   # Ensure JSON response
+    }
+
+    current_dir = os.path.dirname(__file__)
+    file_path = os.path.join(current_dir, "2206.01062v1.pdf")
+
+    files_payload = {
+        "files": (file_path.split('/')[-1], open(file_path, "rb"), "application/pdf"),
+    }
+
+    response = await client.post(endpoint, files=files_payload, data=form_data_options)
+    check.equal(response.status_code, 200, f"Response should be 200 OK. Response: {response.text}")
+
+    response_json = response.json()
+    document_data = response_json.get("document", {})
+
+    check.is_not_none(document_data.get("md_content"), "Markdown content should exist.")
+    if document_data.get("md_content"):
+        check.is_in("## DocLayNet:", document_data["md_content"], "Actual md_content: " + document_data["md_content"][:200])
+
+    check.is_not_none(document_data.get("md_chunks"), "md_chunks should exist with default chunking.")
+    check.is_instance(document_data.get("md_chunks"), list, "md_chunks should be a list.")
+
+    md_chunks_list = document_data.get("md_chunks", [])
+    # Default ChunkingConfig().max_tokens is 512. The PDF 2206.01062v1.pdf is large enough to be chunked.
+    check.is_true(len(md_chunks_list) > 0, "md_chunks list should not be empty for this document with default chunking.")
+
+    if len(md_chunks_list) > 0:
+        for i, chunk in enumerate(md_chunks_list):
+            check.is_in("content", chunk, f"Chunk {i} should have 'content' key.")
+            check.is_in("tokens", chunk, f"Chunk {i} should have 'tokens' key.")
+            check.is_not_none(chunk.get("content"), f"Chunk {i} content should not be None.")
+            check.greater_equal(chunk.get("tokens"), 0, f"Chunk {i} tokens should be >= 0.")
+            # Default max_tokens is 512. A loose check.
+            if chunk.get("tokens", 0) > 0:
+                 check.less_equal(chunk.get("tokens"), 512 + 50 + 5, # Default max_tokens + default overlap_tokens + buffer
+                                  f"Chunk {i} tokens {chunk.get('tokens')} seems too large for default max_tokens=512.")
+
+    # Ensure other formats are not present
+    check.is_none(document_data.get("json_content"), "JSON content should be None.")
+    check.is_none(document_data.get("html_content"), "HTML content should be None.")
+    check.is_none(document_data.get("text_content"), "Text content should be None.")
+    check.is_none(document_data.get("doctags_content"), "DocTags content should be None.")
+
+
+@pytest.mark.asyncio
 async def test_health(client: AsyncClient):
     response = await client.get("/health")
     assert response.status_code == 200

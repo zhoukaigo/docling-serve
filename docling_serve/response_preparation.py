@@ -4,7 +4,7 @@ import shutil
 import time
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Union
+from typing import Union, Optional # Added Optional
 
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
@@ -15,6 +15,7 @@ from docling_core.types.doc import ImageRefMode
 
 from docling_serve.datamodel.convert import ConvertDocumentsOptions
 from docling_serve.datamodel.responses import ConvertDocumentResponse, DocumentResponse
+from docling_serve.chunk import MarkdownChunker, ChunkingConfig # Added imports
 
 _log = logging.getLogger(__name__)
 
@@ -28,6 +29,9 @@ def _export_document_as_content(
     export_doctags: bool,
     image_mode: ImageRefMode,
     md_page_break_placeholder: str,
+    # Add new parameters for chunking options
+    do_markdown_chunking: bool,
+    markdown_chunking_config: Optional[ChunkingConfig],
 ):
     document = DocumentResponse(filename=conv_res.input.file.name)
 
@@ -49,6 +53,20 @@ def _export_document_as_content(
                 image_mode=image_mode,
                 page_break_placeholder=md_page_break_placeholder or None,
             )
+            # ---- Integration of Markdown Chunking ----
+            if do_markdown_chunking and document.md_content:
+                chunker_actual_config = markdown_chunking_config if markdown_chunking_config else ChunkingConfig()
+                chunker = MarkdownChunker(config=chunker_actual_config)
+                try:
+                    document.md_chunks = chunker.split_text(document.md_content)
+                    # Optionally, log statistics or handle them if needed
+                    # stats = chunker.get_chunk_statistics(document.md_chunks)
+                    # _log.info(f"Markdown chunking stats for {document.filename}: {stats}")
+                except Exception as e:
+                    _log.error(f"Error during markdown chunking for {document.filename}: {e}", exc_info=True)
+                    # Decide if we want to set document.md_chunks to None or an empty list, or propagate error
+                    # For now, it will remain None if an error occurs here and wasn't set.
+            # ---- End of Integration ----
         if export_doctags:
             document.doctags_content = new_doc.export_to_doctags()
     elif conv_res.status == ConversionStatus.SKIPPED:
@@ -179,6 +197,9 @@ def process_results(
             export_doctags=export_doctags,
             image_mode=conversion_options.image_export_mode,
             md_page_break_placeholder=conversion_options.md_page_break_placeholder,
+            # Pass the new options from conversion_options
+            do_markdown_chunking=conversion_options.do_markdown_chunking,
+            markdown_chunking_config=conversion_options.markdown_chunking_config,
         )
 
         response = ConvertDocumentResponse(

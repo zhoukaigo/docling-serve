@@ -121,3 +121,66 @@ async def test_convert_url(async_client):
             data["document"]["doctags_content"],
             msg=f"DocTags document should contain '<doctag><page_header><loc'. Received: {safe_slice(data['document']['doctags_content'])}",
         )
+
+
+@pytest.mark.asyncio
+async def test_convert_url_with_markdown_chunking(async_client: httpx.AsyncClient):
+    """Test convert URL to markdown with chunking enabled."""
+    url_endpoint = "http://localhost:5001/v1alpha/convert/source"
+    payload = {
+        "options": {
+            "to_formats": ["md"], # Focus on markdown
+            "do_markdown_chunking": True,
+            "markdown_chunking_config": {
+                "max_tokens": 100,
+                "overlap_tokens": 10,
+                "min_chunk_tokens": 5,
+                "encoding_name": "cl100k_base"
+            },
+            "pdf_backend": "dlparse_v2", # Keep other relevant options consistent
+            "return_as_file": False,
+        },
+        "http_sources": [{"url": "https://arxiv.org/pdf/2206.01062"}], # Same PDF as file test
+    }
+
+    response = await async_client.post(url_endpoint, json=payload)
+    check.equal(response.status_code, 200, f"Response should be 200 OK. Response: {response.text}")
+
+    response_json = response.json()
+
+    # Document check
+    check.is_in("document", response_json)
+    document_data = response_json.get("document", {})
+
+    # MD content check
+    check.is_in("md_content", document_data)
+    check.is_not_none(document_data.get("md_content"), "Markdown content should exist.")
+    if document_data.get("md_content"):
+        check.is_in("## DocLayNet:", document_data["md_content"], "Actual md_content: " + document_data["md_content"][:200])
+
+
+    # MD chunks check
+    check.is_in("md_chunks", document_data)
+    check.is_not_none(document_data.get("md_chunks"), "md_chunks should exist.")
+    check.is_instance(document_data.get("md_chunks"), list, "md_chunks should be a list.")
+
+    md_chunks_list = document_data.get("md_chunks", [])
+    if not md_chunks_list:
+        check.is_true(len(md_chunks_list) > 0, "md_chunks list should not be empty for this document with these chunking settings.")
+    else:
+        check.greater(len(md_chunks_list), 1, "Expected multiple chunks for the given PDF and chunking config.")
+        for i, chunk in enumerate(md_chunks_list):
+            check.is_in("content", chunk, f"Chunk {i} should have 'content' key.")
+            check.is_in("tokens", chunk, f"Chunk {i} should have 'tokens' key.")
+            check.is_not_none(chunk.get("content"), f"Chunk {i} content should not be None.")
+            check.is_instance(chunk.get("content"), str, f"Chunk {i} content should be a string.")
+            check.greater_equal(chunk.get("tokens"), 0, f"Chunk {i} tokens should be >= 0.")
+            if chunk.get("tokens", 0) > 0:
+                check.less_equal(chunk.get("tokens"), 100 + 10 + 5, # max_tokens + overlap_tokens + buffer
+                                 f"Chunk {i} tokens {chunk.get('tokens')} seems too large for max_tokens=100, overlap=10.")
+
+    # Check that other formats are not present if "to_formats" was only ["md"]
+    check.is_none(document_data.get("json_content"), "JSON content should be None if not requested.")
+    check.is_none(document_data.get("html_content"), "HTML content should be None if not requested.")
+    check.is_none(document_data.get("text_content"), "Text content should be None if not requested.")
+    check.is_none(document_data.get("doctags_content"), "DocTags content should be None if not requested.")

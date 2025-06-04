@@ -27,6 +27,7 @@ class DocumentResponse(BaseModel):
     html_content: Optional[str] = None
     text_content: Optional[str] = None
     doctags_content: Optional[str] = None
+    md_chunks: Optional[List[FileItemChunk]] = Field(default=None, description="List of markdown chunks, if requested.") # New field
 
 
 class ConvertDocumentResponse(BaseModel):

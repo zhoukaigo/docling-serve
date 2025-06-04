@@ -21,6 +21,7 @@ from docling.models.factories import get_ocr_factory
 from docling_core.types.doc import ImageRefMode
 
 from docling_serve.settings import docling_serve_settings
+from docling_serve.chunk import ChunkingConfig # Add this import
 
 ocr_factory = get_ocr_factory(
     allow_external_plugins=docling_serve_settings.allow_external_plugins
@@ -194,6 +195,28 @@ class ConvertDocumentsOptions(BaseModel):
                 "Optional, defaults to empty."
             ),
             examples=[["fr", "de", "es", "en"]],
+        ),
+    ] = None
+
+    do_markdown_chunking: Annotated[
+        bool,
+        Field(
+            description=(
+                "If enabled, the markdown output will be chunked. "
+                "Boolean. Optional, defaults to false."
+            ),
+            examples=[False],
+        ),
+    ] = False
+
+    markdown_chunking_config: Annotated[
+        Optional[ChunkingConfig],
+        Field(
+            description=(
+                "Configuration for markdown chunking. "
+                "Only used if do_markdown_chunking is true. "
+                "If not provided, default chunking config will be used."
+            ),
         ),
     ] = None
 
