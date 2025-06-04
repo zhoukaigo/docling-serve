@@ -37,16 +37,19 @@ from docling_serve.datamodel.requests import (
     ConvertDocumentFileSourcesRequest,
     ConvertDocumentHttpSourcesRequest,
     ConvertDocumentsRequest,
+    MarkdownChunkRequest, # Add this
 )
 from docling_serve.datamodel.responses import (
     ClearResponse,
     ConvertDocumentResponse,
+    MarkdownChunkResponse, # Add this
     HealthCheckResponse,
     MessageKind,
     TaskStatusResponse,
     WebsocketMessage,
 )
 from docling_serve.datamodel.task import Task, TaskSource
+from docling_serve.chunk import MarkdownChunker, ChunkingConfig # Add this
 from docling_serve.docling_conversion import _get_converter_from_hash
 from docling_serve.engines.async_orchestrator import (
     BaseAsyncOrchestrator,
@@ -568,5 +571,36 @@ def create_app():  # noqa: C901
     ):
         await orchestrator.clear_results(older_than=older_then)
         return ClearResponse()
+
+    # ... (other endpoints) ...
+
+    @app.post(
+        "/v1alpha/chunk/markdown",
+        response_model=MarkdownChunkResponse,
+        tags=["Chunking"], # Optional: Add a tag for Swagger UI organization
+    )
+    async def chunk_markdown_endpoint(
+        request: MarkdownChunkRequest,
+    ):
+        try:
+            chunker_config = request.config if request.config else ChunkingConfig()
+            chunker = MarkdownChunker(config=chunker_config)
+
+            chunks_list = chunker.split_text(request.markdown_text)
+            # Assuming FileItemChunk is handled correctly by MarkdownChunker and Pydantic
+
+            statistics = chunker.get_chunk_statistics(chunks_list)
+
+            return MarkdownChunkResponse(
+                chunks=chunks_list,
+                statistics=statistics,
+            )
+        except Exception as e:
+            _log.error(f"Error during markdown chunking: {e}", exc_info=True)
+            return MarkdownChunkResponse(
+                chunks=[],
+                statistics=None,
+                error=f"An error occurred during chunking: {str(e)}",
+            )
 
     return app

@@ -1,8 +1,10 @@
 import base64
 from io import BytesIO
-from typing import Annotated, Any, Union
+from typing import Annotated, Any, Union, Optional # Add Optional
 
 from pydantic import AnyHttpUrl, BaseModel, Field
+
+from docling_serve.chunk import ChunkingConfig # Add this import
 
 from docling.datamodel.base_models import DocumentStream
 
@@ -60,3 +62,8 @@ class ConvertDocumentFileSourcesRequest(DocumentsConvertBase):
 ConvertDocumentsRequest = Union[
     ConvertDocumentFileSourcesRequest, ConvertDocumentHttpSourcesRequest
 ]
+
+
+class MarkdownChunkRequest(BaseModel):
+    markdown_text: str = Field(description="The markdown text to be chunked.")
+    config: Optional[ChunkingConfig] = Field(default=None, description="Optional chunking configuration.")

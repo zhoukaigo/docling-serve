@@ -154,3 +154,111 @@ async def test_convert_file(client: AsyncClient):
             data["document"]["doctags_content"],
             msg=f"DocTags document should contain '<doctag><page_header>'. Received: {safe_slice(data['document']['doctags_content'])}",
         )
+
+
+@pytest.mark.asyncio
+async def test_chunk_markdown_basic(client: AsyncClient):
+    markdown_text = "# Title\\n\\nThis is a paragraph.\\n\\n- Item 1\\n- Item 2"
+    request_data = {"markdown_text": markdown_text}
+    response = await client.post("/v1alpha/chunk/markdown", json=request_data)
+    assert response.status_code == 200
+    response_json = response.json()
+    check.is_in("chunks", response_json)
+    check.is_in("statistics", response_json)
+    check.is_none(response_json["error"])
+    check.is_true(len(response_json.get("chunks", [])) > 0, "Chunks list should not be empty")
+    if response_json.get("chunks"):
+        check.is_not_none(response_json["chunks"][0].get("content"))
+        check.is_true(response_json["chunks"][0].get("tokens", 0) > 0, "Tokens should be greater than 0")
+    if response_json.get("statistics"):
+        check.equal(response_json["statistics"].get("total_chunks"), len(response_json.get("chunks", [])))
+
+@pytest.mark.asyncio
+async def test_chunk_markdown_with_config(client: AsyncClient):
+    markdown_text = "This is a single line of text that should not be split if max_tokens is high enough."
+    chunking_config_dict = {
+        "max_tokens": 1000,
+        "overlap_tokens": 10,
+        "min_chunk_tokens": 5,
+        "prefer_semantic_boundaries": True,
+        "preserve_code_blocks": True,
+        "preserve_tables": True,
+        "preserve_lists": True,
+        "overlap_strategy": "semantic",
+        "encoding_name": "cl100k_base"
+    }
+    request_data = {
+        "markdown_text": markdown_text,
+        "config": chunking_config_dict
+    }
+    response = await client.post("/v1alpha/chunk/markdown", json=request_data)
+    assert response.status_code == 200
+    response_json = response.json()
+    check.is_in("chunks", response_json)
+    check.is_none(response_json.get("error"))
+    chunks = response_json.get("chunks", [])
+    check.equal(len(chunks), 1, "Expecting one chunk due to high max_tokens")
+    if len(chunks) == 1:
+        check.equal(chunks[0].get("content"), markdown_text)
+
+@pytest.mark.asyncio
+async def test_chunk_markdown_empty_input(client: AsyncClient):
+    request_data = {"markdown_text": ""}
+    response = await client.post("/v1alpha/chunk/markdown", json=request_data)
+    assert response.status_code == 200
+    response_json = response.json()
+    check.is_in("chunks", response_json)
+    check.is_none(response_json.get("error"))
+    check.equal(len(response_json.get("chunks", [])), 0)
+    if response_json.get("statistics"):
+        check.equal(response_json["statistics"].get("total_chunks"), 0)
+
+@pytest.mark.asyncio
+async def test_chunk_markdown_with_minimal_config(client: AsyncClient):
+    markdown_text = "Short text."
+    request_data = {
+        "markdown_text": markdown_text,
+        "config": {} # Empty config, should use defaults
+    }
+    response = await client.post("/v1alpha/chunk/markdown", json=request_data)
+    assert response.status_code == 200
+    response_json = response.json()
+    check.is_in("chunks", response_json)
+    check.is_none(response_json.get("error"))
+    check.is_true(len(response_json.get("chunks", [])) > 0, "Chunks list should not be empty for non-empty text")
+
+@pytest.mark.asyncio
+async def test_chunk_markdown_causes_splitting(client: AsyncClient):
+    long_word = "longword"
+    markdown_text = (long_word + " ") * 300 # Should be roughly 300 words/tokens
+
+    chunking_config_dict = {
+        "max_tokens": 50, # Force splitting
+        "overlap_tokens": 5,
+        "min_chunk_tokens": 10,
+        "encoding_name": "cl100k_base" # Ensure tiktoken can count
+    }
+    request_data = {
+        "markdown_text": markdown_text,
+        "config": chunking_config_dict
+    }
+    response = await client.post("/v1alpha/chunk/markdown", json=request_data)
+    assert response.status_code == 200
+    response_json = response.json()
+    check.is_in("chunks", response_json)
+    check.is_none(response_json.get("error"))
+    chunks = response_json.get("chunks", [])
+    check.is_true(len(chunks) > 1, "Expecting multiple chunks due to forced splitting")
+    if response_json.get("statistics"):
+        check.equal(response_json["statistics"].get("total_chunks"), len(chunks))
+        check.is_true(response_json["statistics"].get("total_chunks") > 1)
+
+    for chunk in chunks:
+        check.is_true(len(chunk.get("content", "")) > 0)
+        check.is_true(chunk.get("tokens", 0) > 0)
+        # This check can be tricky due to how overlap is handled and if the last chunk is smaller.
+        # A simple check is that tokens are not excessively over max_tokens.
+        # The chunker aims for max_tokens BEFORE overlap is added back for some strategies.
+        # And min_chunk_tokens is also a factor.
+        check.is_true(chunk.get("tokens", 0) <= chunking_config_dict["max_tokens"] + chunking_config_dict["overlap_tokens"] + 5, # Adding a small buffer for tokenization variance
+                        f"Chunk tokens {chunk.get('tokens')} vs max_tokens {chunking_config_dict['max_tokens']}")
