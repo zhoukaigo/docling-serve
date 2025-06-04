@@ -1,5 +1,5 @@
 # Define the input options for the API
-from typing import Annotated, Any, Optional, List
+from typing import Annotated, Any, Optional, List, TYPE_CHECKING
 
 from pydantic import AnyUrl, BaseModel, Field, model_validator
 from typing_extensions import Self
@@ -21,7 +21,12 @@ from docling.models.factories import get_ocr_factory
 from docling_core.types.doc import ImageRefMode
 
 from docling_serve.settings import docling_serve_settings
-from docling_serve.chunk import ChunkingConfig # Add this import
+# from docling_serve.chunk import ChunkingConfig # Add this import
+from docling_serve.datamodel.chunk_models import Chunks, FileItemChunk # Add this import
+from docling_serve.chunk import ChunkingConfig # Moved import here
+
+if TYPE_CHECKING:
+    pass # No longer needed here, but keep block if other type-checking imports exist or future-proofing
 
 ocr_factory = get_ocr_factory(
     allow_external_plugins=docling_serve_settings.allow_external_plugins
@@ -210,7 +215,7 @@ class ConvertDocumentsOptions(BaseModel):
     ] = False
 
     markdown_chunking_config: Annotated[
-        Optional[ChunkingConfig],
+        Optional["ChunkingConfig"], # Use string literal here
         Field(
             description=(
                 "Configuration for markdown chunking. "
@@ -416,27 +421,4 @@ class ConvertDocumentsOptions(BaseModel):
 
         return self
 
-class FileItemChunk(BaseModel):
-    content: Annotated[
-        Optional[str],
-        Field(description="The content of the file item")
-    ] = None
-
-    tokens: Annotated[
-        Optional[int],
-        Field(description="The tokens of the content")
-    ] = None
-
-class Chunks(BaseModel):
-    chunks: Annotated[
-        List[FileItemChunk],
-        Field(
-            default_factory=list,
-            description="The chunks of the document"
-        )
-    ]
-
-    error: Annotated[
-        Optional[str],
-        Field(description="The error that occurred during the conversion to chunks")
-    ] = None
+ConvertDocumentsOptions.model_rebuild()
