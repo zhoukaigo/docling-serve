@@ -1,3 +1,9 @@
+## [v0.13.0](https://github.com/docling-project/docling-serve/releases/tag/v0.13.0) - 2025-06-04
+
+### Feature
+
+* Upgrade docling to 2.36 ([#212](https://github.com/docling-project/docling-serve/issues/212)) ([`ffea347`](https://github.com/docling-project/docling-serve/commit/ffea34732b24fdd438fabd6df02d3d9ce66b4534))
+
 ## [v0.12.0](https://github.com/docling-project/docling-serve/releases/tag/v0.12.0) - 2025-06-03
 
 ### Feature
